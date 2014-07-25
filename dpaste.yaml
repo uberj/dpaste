@@ -1,0 +1,94 @@
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template to deploy dpaste
+
+parameters:
+  key_name:
+    type: string
+    description: Name of keypair to assign to servers
+  flavor:
+    type: string
+    description: Flavor to use for servers
+  image_name:
+    type: string
+    description: Name of the image to boot
+  public_net_id:
+    type: string
+    description: >
+      ID of public network for which floating IP addresses will be allocated
+  private_net_id:
+    type: string
+    description: ID of private network into which servers get deployed
+  private_subnet_id:
+    type: string
+    description: ID of private sub network into which servers get deployed
+
+resources:
+  webserver:
+    type: OS::Nova::Server
+    properties:
+      name: webserver
+      metadata:
+        role: mozpuppet::role::dpaste::web
+        database_ip: { get_attr: [ database, first_address ] }
+      image: { get_param: image_name }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: webserver_port }
+
+  webserver_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+      #security_groups: [{ get_resource: server_security_group }]
+
+  webserver_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: webserver_port }
+
+  database:
+    type: OS::Nova::Server
+    properties:
+      name: database
+      image: { get_param: image_name }
+      metadata:
+        role: mozpuppet::role::dpaste::database
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: database_port }
+
+  database_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+      #security_groups: [{ get_resource: server_security_group }]
+
+  database_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: database_port }
+
+
+outputs:
+  webserver_private_ip:
+    description: IP address of webserver in private network
+    value: { get_attr: [ webserver, first_address ] }
+  webserver_public_ip:
+    description: Floating IP address of webserver in public network
+    value: { get_attr: [ webserver_floating_ip, floating_ip_address ] }
+  database_private_ip:
+    description: IP address of database in private network
+    value: { get_attr: [ database, first_address ] }
+  database_public_ip:
+    description: Floating IP address of database in public network
+    value: { get_attr: [ database_floating_ip, floating_ip_address ] }

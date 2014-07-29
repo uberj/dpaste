@@ -1,0 +1,101 @@
+heat_template_version: 2013-05-23
+parameters:
+  key_name:
+    type: string
+  flavor:
+    type: string
+  image:
+    type: string
+  public_net_id:
+    type: string
+    description: >
+      ID of public network for which floating IP addresses will be allocated
+  private_net_id:
+    type: string
+    description: ID of private network into which servers get deployed
+  private_subnet_id:
+    type: string
+    description: ID of private sub network into which servers get deployed
+
+resources:
+  mysql_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      inputs:
+      - name: db_name
+      - name: root_password
+      - name: username
+      - name: user_password
+      - name: host
+      - name: user_privilates
+      outputs:
+      - name: result
+      config: |
+        class { '::mysql::server':
+          root_password    => $::root_password,
+        }
+
+        ::mysql::db { $::db_name:
+          user     => $::username,
+          password => $::user_password,
+          host     => $::host,
+          grant    => $::user_privilates,
+        }
+
+  mysql_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: mysql_config
+      server:
+        get_resource: db_server
+      input_values:
+        db_name: dpaste
+        root_password: bad-password
+        username: dpaste
+        user_password: dpaste
+        host: 10.0.0.%
+        user_privilates:
+            - CREATE
+            - UPDATE
+
+  db_server:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      key_name: {get_param: key_name}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - port: { get_resource: db_port }
+
+  db_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  db_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: db_port }
+
+outputs:
+  result:
+    value:
+      get_attr: [mysql_deployment, result]
+  stdout:
+    value:
+      get_attr: [mysql_deployment, deploy_stdout]
+  stderr:
+    value:
+      get_attr: [mysql_deployment, deploy_stderr]
+  status_code:
+    value:
+      get_attr: [mysql_deployment, deploy_status_code]
+  db_public_ip:
+    description: Floating IP address of database in public network
+    value: { get_attr: [ db_floating_ip, floating_ip_address ] }

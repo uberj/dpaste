@@ -18,7 +18,38 @@ parameters:
     description: ID of private sub network into which servers get deployed
 
 resources:
-  mysql_config:
+  # App config
+  app_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: install_dir
+      - name: git_url
+      - name: install_script
+      outputs:
+      - name: result
+      config: |
+        #!/bin/bash
+        mkdir -p $(dirname $install_dir)
+        git clone $git_url $install_dir
+        $install_dir/$install_script
+
+  app_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: app_config
+      server:
+        # Install the app on the web server
+        get_resource: web_server
+      input_values:
+        install_dir: /var/www/dpaste
+        git_url: https://github.com/uberj/dpaste.git
+        install_script: install.sh
+
+  # MySQL config
+  mysql_server_config:
     type: OS::Heat::SoftwareConfig
     properties:
       group: puppet
@@ -40,14 +71,14 @@ resources:
           user     => $::username,
           password => $::user_password,
           host     => $::host,
-          grant    => $::user_privilates,
+          grant    => ['SELECT', 'UPDATE']
         }
 
-  mysql_deployment:
+  mysql_server_deployment:
     type: OS::Heat::SoftwareDeployment
     properties:
       config:
-        get_resource: mysql_config
+        get_resource: mysql_server_config
       server:
         get_resource: db_server
       input_values:
@@ -56,9 +87,77 @@ resources:
         username: dpaste
         user_password: dpaste
         host: 10.0.0.%
-        user_privilates:
-            - CREATE
-            - UPDATE
+        user_privilates: ['SELECT', 'UPDATE']
+
+  # MySQL client config
+  mysql_client_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config: |
+        include mysql::client
+
+  mysql_client_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: mysql_client_config
+      server:
+        get_resource: web_server
+
+  # Apache config
+  apache_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      inputs:
+      - name: vhost_name
+      - name: install_root
+      - name: wsgi_path
+      outputs:
+      - name: result
+      config: |
+        class {
+          'apache':
+            default_mods        => true,
+            default_confd_files => false;
+          'apache::mod::wsgi':
+            wsgi_socket_prefix => '/var/run/wsgi';
+        }
+
+        apache::vhost { "$::vhost_name":
+          port                        => '80',
+          docroot                     => "$::install_root",
+          wsgi_application_group      => '%{GLOBAL}',
+          wsgi_daemon_process         => 'wsgi',
+          wsgi_daemon_process_options => {
+            processes    => '2',
+            threads      => '15',
+            display-name => '%{GROUP}',
+          },
+          wsgi_import_script          => "$::wsgi_path",
+          wsgi_import_script_options  =>
+            { process-group => 'wsgi', application-group => '%{GLOBAL}' },
+          wsgi_process_group          => 'wsgi',
+          wsgi_script_aliases         => { '/' => "$::wsgi_path" },
+        }
+
+
+  apache_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: apache_config
+      server:
+        get_resource: web_server
+      input_values:
+        vhost_name: dpaste
+        install_root: /var/www/dpaste
+        wsgi_path: /var/www/dpaste/wsgi.py
+
+  # Mysql server
 
   db_server:
     type: OS::Nova::Server
@@ -83,19 +182,75 @@ resources:
       floating_network_id: { get_param: public_net_id }
       port_id: { get_resource: db_port }
 
+  # Apache server
+
+  web_server:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      key_name: {get_param: key_name}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - port: { get_resource: web_port }
+
+  web_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net_id }
+      fixed_ips:
+        - subnet_id: { get_param: private_subnet_id }
+
+  web_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: web_port }
+
 outputs:
   result:
     value:
-      get_attr: [mysql_deployment, result]
-  stdout:
+      get_attr: [mysql_server_deployment, result]
+  # DB output
+  db_stdout:
     value:
-      get_attr: [mysql_deployment, deploy_stdout]
-  stderr:
+      get_attr: [mysql_server_deployment, deploy_stdout]
+  db_stderr:
     value:
-      get_attr: [mysql_deployment, deploy_stderr]
-  status_code:
+      get_attr: [mysql_server_deployment, deploy_stderr]
+  db_status_code:
     value:
-      get_attr: [mysql_deployment, deploy_status_code]
-  db_public_ip:
+      get_attr: [mysql_server_deployment, deploy_status_code]
+
+  # Web output
+  web_stdout:
+    value:
+      get_attr: [apache_deployment, deploy_stdout]
+  web_stderr:
+    value:
+      get_attr: [apache_deployment, deploy_stderr]
+  web_status_code:
+    value:
+      get_attr: [apache_deployment, deploy_status_code]
+
+  # App output
+  app_stdout:
+    value:
+      get_attr: [app_deployment, deploy_stdout]
+  app_stderr:
+    value:
+      get_attr: [app_deployment, deploy_stderr]
+
+  mysql_client_app_stdout:
+    value:
+      get_attr: [mysql_client_deployment, deploy_stdout]
+  mysql_client_app_stderr:
+    value:
+      get_attr: [mysql_client_deployment, deploy_stderr]
+
+  web_public_ip:
     description: Floating IP address of database in public network
     value: { get_attr: [ db_floating_ip, floating_ip_address ] }
+  web_public_ip:
+    description: Floating IP address of webserver in public network
+    value: { get_attr: [ web_floating_ip, floating_ip_address ] }

@@ -28,7 +28,7 @@ resources:
         - name: db_name
         - name: db_root_password
         - name: db_username
-        - name: db_user_password
+        - name: db_password
         - name: db_allowed_hosts
 
         # apache specific data
@@ -41,12 +41,13 @@ resources:
         - name: app_git_url
         - name: app_install_script
         - name: app_db_server
+        - name: app_secret_key
       outputs:
         # db specific data
         - name: db_name
         - name: db_root_password
         - name: db_username
-        - name: db_user_password
+        - name: db_password
         - name: db_allowed_hosts
 
         # apache specific data
@@ -59,20 +60,22 @@ resources:
         - name: app_git_url
         - name: app_install_script
         - name: app_db_server
+        - name: app_secret_key
       config: |
         #!/bin/bash
+        set -x
         function stash_config () {
           # TODO Put this stuff in zookeeper and query with hiera in puppet?
           # many ways to do this
           val=${!1}
-          echo $val > ${heat_outputs_path}.$1
+          echo -n $val > ${heat_outputs_path}.$1
           echo "export PROVISION_$1=$val" >> /etc/environment
         }
         # TODO Generate random passwords
         stash_config db_name
         stash_config db_root_password
         stash_config db_username
-        stash_config db_user_password
+        stash_config db_password
         stash_config db_allowed_hosts
 
         stash_config apache_vhost_name
@@ -83,6 +86,7 @@ resources:
         stash_config app_git_url
         stash_config app_install_script
         stash_config app_db_server
+        stash_config app_secret_key
 
   app_config_deployment:
     type: OS::Heat::SoftwareDeployment
@@ -96,7 +100,7 @@ resources:
         db_root_password: asillypassword
         db_name: dpaste
         db_username: dpaste
-        db_user_password: anothersillypassword
+        db_password: anothersillypassword
         db_allowed_hosts: 10.0.0.%
 
         apache_vhost_name: dpaste
@@ -109,6 +113,7 @@ resources:
         app_db_server:
           # Get the internal address of the db
           get_attr: [db_server, first_address]
+        app_secret_key: a-not-so-secret-key
 
   # App install
   app_install:
@@ -157,7 +162,7 @@ resources:
       - name: db_name
       - name: root_password
       - name: username
-      - name: user_password
+      - name: password
       - name: host
       outputs:
       - name: result
@@ -174,7 +179,7 @@ resources:
 
         ::mysql::db { $::db_name:
           user     => $::username,
-          password => $::user_password,
+          password => $::password,
           host     => $::host,
           grant    => ['SELECT', 'UPDATE']  # TODO, figure out how to pass this as a param. Unicode formating is breaking things.
         }
@@ -193,8 +198,8 @@ resources:
           get_attr: [app_config_deployment, db_root_password]
         username:
           get_attr: [app_config_deployment, db_username]
-        user_password:
-          get_attr: [app_config_deployment, db_user_password]
+        password:
+          get_attr: [app_config_deployment, db_password]
         host:
           get_attr: [app_config_deployment, db_allowed_hosts]
 
@@ -207,6 +212,9 @@ resources:
       - name: result
       config: |
         include mysql::client
+        class { 'mysql::bindings':
+          python_enable => true
+        }
 
   mysql_client_deployment:
     type: OS::Heat::SoftwareDeployment

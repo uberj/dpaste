@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 # XXX This is a total hack. We need to have apache do this be default
 grep '. /etc/environment' /etc/apache2/envvars

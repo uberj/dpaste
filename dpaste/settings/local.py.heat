@@ -12,9 +12,9 @@ MANAGERS = ADMINS
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.genenv('PROVISION_db_name'),
-        'USER': os.genenv('PROVISION_db_username'),
-        'PASSWORD': os.genenv('PROVISION_db_password'),
+        'NAME': os.getenv('PROVISION_db_name'),
+        'USER': os.getenv('PROVISION_db_username'),
+        'PASSWORD': os.getenv('PROVISION_db_password'),
     }
 }
 

@@ -35,6 +35,7 @@ resources:
         - name: apache_vhost_name
         - name: apache_install_root
         - name: apache_wsgi_path
+        - name: apache_static_root
 
         # app installation data
         - name: app_install_dir
@@ -54,6 +55,7 @@ resources:
         - name: apache_vhost_name
         - name: apache_install_root
         - name: apache_wsgi_path
+        - name: apache_static_root
 
         # app installation data
         - name: app_install_dir
@@ -81,6 +83,7 @@ resources:
         stash_config apache_vhost_name
         stash_config apache_install_root
         stash_config apache_wsgi_path
+        stash_config apache_static_root
 
         stash_config app_install_dir
         stash_config app_git_url
@@ -106,6 +109,7 @@ resources:
         apache_vhost_name: dpaste
         apache_install_root: /var/www/dpaste
         apache_wsgi_path: /var/www/dpaste/wsgi.py
+        apache_static_root: /var/www/dpaste/dpaste/static/
 
         app_install_dir: /var/www/dpaste
         app_git_url: https://github.com/uberj/dpaste.git
@@ -181,7 +185,9 @@ resources:
           user     => $::username,
           password => $::password,
           host     => $::host,
-          grant    => ['SELECT', 'UPDATE']  # TODO, figure out how to pass this as a param. Unicode formating is breaking things.
+          # TODO, figure out how to pass this as a param. Unicode formating is breaking things.
+          # The list looks like [u'SELECT', u'UPDATE', ...] and puppet doesn't like that.
+          grant    => ['SELECT', 'UPDATE', 'CREATE', 'DROP']
         }
 
   mysql_server_deployment:
@@ -233,6 +239,7 @@ resources:
       - name: vhost_name
       - name: install_root
       - name: wsgi_path
+      - name: static_root
       outputs:
       - name: result
       config: |
@@ -246,6 +253,11 @@ resources:
 
         apache::vhost { "$::vhost_name":
           port                        => '80',
+          default_vhost               => true,
+          aliases                     => [
+            # TODO, what do do about this? What if an app doesn't need this?
+            {alias => '/static', path => $::static_root}
+          ],
           docroot                     => "$::install_root",
           wsgi_application_group      => '%{GLOBAL}',
           wsgi_daemon_process         => 'wsgi',
@@ -276,6 +288,8 @@ resources:
           get_attr: [app_config_deployment, apache_install_root]
         wsgi_path:
           get_attr: [app_config_deployment, apache_wsgi_path]
+        static_root:
+          get_attr: [app_config_deployment, apache_static_root]
 
   # Mysql server
 

@@ -13,9 +13,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': os.getenv('PROVISION_db_name'),
-        'HOST': os.getenv('PROVISION_db_server'),
         'USER': os.getenv('PROVISION_db_username'),
         'PASSWORD': os.getenv('PROVISION_db_password'),
+        'HOST': os.getenv('PROVISION_app_db_server'),
     }
 }
 

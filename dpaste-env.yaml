@@ -18,8 +18,100 @@ parameters:
     description: ID of private sub network into which servers get deployed
 
 resources:
-  # App config
+  # Secret config
   app_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        # db specific data
+        - name: db_name
+        - name: db_root_password
+        - name: db_username
+        - name: db_user_password
+        - name: db_allowed_hosts
+
+        # apache specific data
+        - name: apache_vhost_name
+        - name: apache_install_root
+        - name: apache_wsgi_path
+
+        # app installation data
+        - name: app_install_dir
+        - name: app_git_url
+        - name: app_install_script
+        - name: app_db_server
+      outputs:
+        # db specific data
+        - name: db_name
+        - name: db_root_password
+        - name: db_username
+        - name: db_user_password
+        - name: db_allowed_hosts
+
+        # apache specific data
+        - name: apache_vhost_name
+        - name: apache_install_root
+        - name: apache_wsgi_path
+
+        # app installation data
+        - name: app_install_dir
+        - name: app_git_url
+        - name: app_install_script
+        - name: app_db_server
+      config: |
+        #!/bin/bash
+        function stash_config () {
+          # TODO Put this stuff in zookeeper and query with hiera in puppet?
+          # many ways to do this
+          val=${!1}
+          echo $val > ${heat_outputs_path}.$1
+          echo "export PROVISION_$1=$val" >> /etc/environment
+        }
+        # TODO Generate random passwords
+        stash_config db_name
+        stash_config db_root_password
+        stash_config db_username
+        stash_config db_user_password
+        stash_config db_allowed_hosts
+
+        stash_config apache_vhost_name
+        stash_config apache_install_root
+        stash_config apache_wsgi_path
+
+        stash_config app_install_dir
+        stash_config app_git_url
+        stash_config app_install_script
+        stash_config app_db_server
+
+  app_config_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: app_config
+      server:
+        # Install the app config on the web server
+        get_resource: web_server
+      input_values:
+        db_root_password: asillypassword
+        db_name: dpaste
+        db_username: dpaste
+        db_user_password: anothersillypassword
+        db_allowed_hosts: 10.0.0.%
+
+        apache_vhost_name: dpaste
+        apache_install_root: /var/www/dpaste
+        apache_wsgi_path: /var/www/dpaste/wsgi.py
+
+        app_install_dir: /var/www/dpaste
+        app_git_url: https://github.com/uberj/dpaste.git
+        app_install_script: install.sh
+        app_db_server:
+          # Get the internal address of the db
+          get_attr: [db_server, first_address]
+
+  # App install
+  app_install:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
@@ -31,22 +123,30 @@ resources:
       - name: result
       config: |
         #!/bin/bash
-        mkdir -p $(dirname $install_dir)
-        git clone $git_url $install_dir
-        $install_dir/$install_script
+        # TODO, why are we getting newlines?
+        INSTALL_DIR=$(echo $install_dir | tr -d '\n')
+        GIT_URL=$(echo $git_url | tr -d '\n')
+        INSTALL_SCRIPT=$(echo $install_script | tr -d '\n')
 
-  app_deployment:
+        mkdir -p $(dirname $INSTALL_DIR)
+        git clone $GIT_URL $INSTALL_DIR
+        $INSTALL_DIR/$INSTALL_SCRIPT
+
+  app_install_deployment:
     type: OS::Heat::SoftwareDeployment
     properties:
       config:
-        get_resource: app_config
+        get_resource: app_install
       server:
         # Install the app on the web server
         get_resource: web_server
       input_values:
-        install_dir: /var/www/dpaste
-        git_url: https://github.com/uberj/dpaste.git
-        install_script: install.sh
+        install_dir:
+          get_attr: [app_config_deployment, app_install_dir]
+        git_url:
+          get_attr: [app_config_deployment, app_git_url]
+        install_script:
+          get_attr: [app_config_deployment, app_install_script]
 
   # MySQL config
   mysql_server_config:
@@ -59,19 +159,24 @@ resources:
       - name: username
       - name: user_password
       - name: host
-      - name: user_privilates
       outputs:
       - name: result
       config: |
         class { '::mysql::server':
-          root_password    => $::root_password,
+          root_password     => $::root_password,
+          restart           => true,
+          override_options  => {
+            'mysqld' => {
+              'bind-address' => '0.0.0.0',
+            }
+          }
         }
 
         ::mysql::db { $::db_name:
           user     => $::username,
           password => $::user_password,
           host     => $::host,
-          grant    => ['SELECT', 'UPDATE']
+          grant    => ['SELECT', 'UPDATE']  # TODO, figure out how to pass this as a param. Unicode formating is breaking things.
         }
 
   mysql_server_deployment:
@@ -82,12 +187,16 @@ resources:
       server:
         get_resource: db_server
       input_values:
-        db_name: dpaste
-        root_password: bad-password
-        username: dpaste
-        user_password: dpaste
-        host: 10.0.0.%
-        user_privilates: ['SELECT', 'UPDATE']
+        db_name:
+          get_attr: [app_config_deployment, db_name]
+        root_password:
+          get_attr: [app_config_deployment, db_root_password]
+        username:
+          get_attr: [app_config_deployment, db_username]
+        user_password:
+          get_attr: [app_config_deployment, db_user_password]
+        host:
+          get_attr: [app_config_deployment, db_allowed_hosts]
 
   # MySQL client config
   mysql_client_config:
@@ -153,9 +262,12 @@ resources:
       server:
         get_resource: web_server
       input_values:
-        vhost_name: dpaste
-        install_root: /var/www/dpaste
-        wsgi_path: /var/www/dpaste/wsgi.py
+        vhost_name:
+          get_attr: [app_config_deployment, apache_vhost_name]
+        install_root:
+          get_attr: [app_config_deployment, apache_install_root]
+        wsgi_path:
+          get_attr: [app_config_deployment, apache_wsgi_path]
 
   # Mysql server
 
@@ -233,13 +345,13 @@ outputs:
     value:
       get_attr: [apache_deployment, deploy_status_code]
 
-  # App output
+  # Install App output
   app_stdout:
     value:
-      get_attr: [app_deployment, deploy_stdout]
+      get_attr: [app_install_deployment, deploy_stdout]
   app_stderr:
     value:
-      get_attr: [app_deployment, deploy_stderr]
+      get_attr: [app_install_deployment, deploy_stderr]
 
   mysql_client_app_stdout:
     value:

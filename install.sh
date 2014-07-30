@@ -11,5 +11,6 @@ fi
 SCRIPT_DIR=$(dirname $0)
 pushd $SCRIPT_DIR
     pip install -r requirements.txt
+    cp dpaste/settings/local.py.heat dpaste/settings/local.py
     python manage.py syncdb --migrate
 popd

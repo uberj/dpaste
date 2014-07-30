@@ -10,5 +10,6 @@ fi
 
 SCRIPT_DIR=$(dirname $0)
 pushd $SCRIPT_DIR
-pip install -r requirements.txt
-python manage.py syncdb --migrate
+    pip install -r requirements.txt
+    python manage.py syncdb --migrate
+popd

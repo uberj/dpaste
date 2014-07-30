@@ -20,7 +20,7 @@ import site
 # if running multiple sites in the same mod_wsgi process. To fix this, use
 # mod_wsgi daemon mode with each site in its own daemon process, or use
 # os.environ["DJANGO_SETTINGS_MODULE"] = "dpaste.settings"
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dpaste.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dpaste.settings.local")
 
 # Add the app dir to the python path so we can import manage.
 wsgidir = os.path.dirname(__file__)

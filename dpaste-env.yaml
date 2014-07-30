@@ -187,7 +187,7 @@ resources:
           host     => $::host,
           # TODO, figure out how to pass this as a param. Unicode formating is breaking things.
           # The list looks like [u'SELECT', u'UPDATE', ...] and puppet doesn't like that.
-          grant    => ['SELECT', 'UPDATE', 'CREATE', 'DROP']
+          grant    => ['ALL']
         }
 
   mysql_server_deployment:

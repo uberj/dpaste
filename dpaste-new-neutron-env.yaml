@@ -12,17 +12,6 @@ heat_template_version: 2013-05-23
 # in the heat template and add to the reusability of a template. Ideally, the difference between
 # production and dev will be determined by passing different parameter values.
 #
-# Here is an example of this template being invoked::
-#     heat stack-create test --disable-rollback --template-file=dpaste-env.yaml --parameters="
-#         key_name=uberj-key;
-#         flavor=m1.large;
-#         image=ubuntu-trusty.amd64.master.2014072905;
-#         public_net_id=7b3170a7-3c5f-465f-8bbf-6dd53a3ac6ae;
-#         private_net_id=12fb13e2-0cf9-4656-a6b5-63a216b9c866;
-#         private_subnet_id=a4adffc9-f6ca-43e0-92b7-6bcc7bfe9f7d"
-#
-# The uuid's used for public_net_id, private_net_id, and private_subnet_id are references to
-# existing networks and subnets present in OpenStack.
 #
 # [0] http://docs.openstack.org/developer/heat/template_guide/hot_spec.html#parameters-section
 parameters:
@@ -34,16 +23,6 @@ parameters:
   image:
     type: string
     default: ubuntu-trusty-amd64-0.1.0-2014073016
-  #public_net_id:
-  #  type: string
-  #  description: >
-  #    ID of public network for which floating IP addresses will be allocated
-  #private_net_id:
-  #  type: string
-  #  description: ID of private network into which servers get deployed
-  #private_subnet_id:
-  #  type: string
-  #  description: ID of private sub network into which servers get deployed
 
   # Network parameters. These should all have sane defaults
   public_net_id:
@@ -79,6 +58,24 @@ parameters:
 #
 # [1] http://docs.openstack.org/developer/heat/template_guide/hot_spec.html#resources-section
 resources:
+  secgroup-ssh:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable traffic external traffic on SSH.
+      rules: [{protocol: tcp, port_range_max: 22, port_range_min: 22},]
+
+  secgroup-web:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable traffic external traffic on SSH.
+      rules: [{protocol: tcp, port_range_max: 80, port_range_min: 80},]
+
+  secgroup-internal:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable all traffic between instances.
+      rules: [{protocol: tcp, port_range_max: 65535, port_range_min: 1, remote_mode: remote_group_id},]
+
   private_net:
     type: OS::Neutron::Net
     properties:
@@ -131,6 +128,10 @@ resources:
       fixed_ips:
         #- subnet_id: { get_param: private_subnet_id }
         - subnet_id: { get_resource: private_subnet }
+      security_groups:
+        - { get_resource: secgroup-internal }
+        - { get_resource: secgroup-web }
+        - { get_resource: secgroup-ssh }
 
   # By default, when you connect an instance to a network it you must assign it a publicly accessible
   # ip address. These external ip addresses are called "floating ip addresses"
@@ -257,6 +258,10 @@ resources:
       fixed_ips:
         #- subnet_id: { get_param: private_subnet_id }
         - subnet_id: { get_resource: private_subnet }
+      security_groups:
+        - { get_resource: secgroup-internal }
+        - { get_resource: secgroup-web }
+        - { get_resource: secgroup-ssh }
 
   # Give the instance external connectivity
   web_floating_ip:

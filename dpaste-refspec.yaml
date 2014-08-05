@@ -1,0 +1,421 @@
+heat_template_version: 2013-05-23
+
+parameters:
+  key_name:
+    type: string
+  flavor:
+    type: string
+    default: m1.medium
+  image:
+    type: string
+    default: ubuntu-trusty-amd64-0.1.0-2014073016
+
+  public_net_id:
+    type: string
+    default: public
+    description: >
+      ID of public network for which floating IP addresses will be allocated
+  private_net_name:
+    type: string
+    default: private
+    description: Name of private network to be created
+  private_net_cidr:
+    type: string
+    default: 10.0.0.0/24
+    description: Private network address (CIDR notation)
+  private_net_gateway:
+    type: string
+    default: 10.0.0.1
+    description: Private network gateway address
+  private_net_pool_start:
+    type: string
+    default: 10.0.0.10
+    description: Start of private network IP address allocation pool
+  private_net_pool_end:
+    type: string
+    default: 10.0.0.254
+    description: End of private network IP address allocation pool
+
+
+resources:
+  secgroup-ssh:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable traffic external traffic on SSH.
+      rules: [{protocol: tcp, port_range_max: 22, port_range_min: 22},]
+
+  secgroup-web:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable traffic external traffic on SSH.
+      rules: [{protocol: tcp, port_range_max: 80, port_range_min: 80},]
+
+  secgroup-internal:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable all traffic between instances.
+      rules: [{protocol: tcp, port_range_max: 65535, port_range_min: 1, remote_mode: remote_group_id},]
+
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      allocation_pools:
+        - start: { get_param: private_net_pool_start }
+          end: { get_param: private_net_pool_end }
+      dns_nameservers:
+        - 8.8.8.8
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net_id }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  db_server:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      key_name: {get_param: key_name}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - port: { get_resource: db_port }
+
+  db_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+      security_groups:
+        - { get_resource: secgroup-internal }
+        - { get_resource: secgroup-web }
+        - { get_resource: secgroup-ssh }
+
+  db_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: db_port }
+
+  mysql_server_deployment:
+    type: Software::Mysql::Allinone
+    properties:
+      config:
+        get_resource: mysql_server_config
+      server:
+        get_resource: db_server
+      input_values:
+        db_name:
+          get_attr: [app_config_deployment, db_name]
+        root_password:
+          get_attr: [app_config_deployment, db_root_password]
+        username:
+          get_attr: [app_config_deployment, db_username]
+        password:
+          get_attr: [app_config_deployment, db_password]
+        allowed_hosts:
+          get_attr: [app_config_deployment, db_allowed_hosts]
+        db_server:
+          get_resource: db_server
+
+  web_server:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      key_name: {get_param: key_name}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - port: { get_resource: web_port }
+
+  web_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+      security_groups:
+        - { get_resource: secgroup-internal }
+        - { get_resource: secgroup-web }
+        - { get_resource: secgroup-ssh }
+
+  web_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net_id }
+      port_id: { get_resource: web_port }
+
+  apache_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      inputs:
+      - name: vhost_name
+      - name: install_root
+      - name: wsgi_path
+      - name: static_root
+      outputs:
+      - name: result
+      config: |
+        class {
+          'apache':
+            default_mods        => true,
+            default_confd_files => false;
+          'apache::mod::wsgi':
+            wsgi_socket_prefix => '/var/run/wsgi';
+        }
+
+        apache::vhost { "$::vhost_name":
+          port                        => '80',
+          default_vhost               => true,
+          aliases                     => [
+            {alias => '/static', path => $::static_root}
+          ],
+          docroot                     => "$::install_root",
+          wsgi_application_group      => '%{GLOBAL}',
+          wsgi_daemon_process         => 'wsgi',
+          wsgi_daemon_process_options => {
+            processes    => '2',
+            threads      => '15',
+            display-name => '%{GROUP}',
+          },
+          wsgi_import_script          => "$::wsgi_path",
+          wsgi_import_script_options  =>
+            { process-group => 'wsgi', application-group => '%{GLOBAL}' },
+          wsgi_process_group          => 'wsgi',
+          wsgi_script_aliases         => { '/' => "$::wsgi_path" },
+        }
+
+
+  apache_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: apache_config
+      server:
+        get_resource: web_server
+      input_values:
+        vhost_name:
+          get_attr: [app_config_deployment, apache_vhost_name]
+        install_root:
+          get_attr: [app_config_deployment, apache_install_root]
+        wsgi_path:
+          get_attr: [app_config_deployment, apache_wsgi_path]
+        static_root:
+          get_attr: [app_config_deployment, apache_static_root]
+
+  mysql_client_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config: |
+        include mysql::client
+        class { 'mysql::bindings':
+          python_enable => true
+        }
+
+  mysql_client_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: mysql_client_config
+      server:
+        get_resource: web_server
+
+  app_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        # db specific data
+        - name: db_name
+        - name: db_root_password
+        - name: db_username
+        - name: db_password
+        - name: db_allowed_hosts
+
+        # apache specific data
+        - name: apache_vhost_name
+        - name: apache_install_root
+        - name: apache_wsgi_path
+        - name: apache_static_root
+
+        # app installation data
+        - name: app_install_dir
+        - name: app_git_url
+        - name: app_install_script
+        - name: app_db_server
+        - name: app_secret_key
+      outputs:
+        # db specific data
+        - name: db_name
+        - name: db_root_password
+        - name: db_username
+        - name: db_password
+        - name: db_allowed_hosts
+
+        # apache specific data
+        - name: apache_vhost_name
+        - name: apache_install_root
+        - name: apache_wsgi_path
+        - name: apache_static_root
+
+        # app installation data
+        - name: app_install_dir
+        - name: app_git_url
+        - name: app_install_script
+        - name: app_db_server
+        - name: app_secret_key
+      config: |
+        #!/bin/bash
+        set -x
+        function stash_config () {
+          val=${!1}
+          echo -n $val > ${heat_outputs_path}.$1
+          echo "export PROVISION_$1=$val" >> /etc/environment
+        }
+
+        stash_config db_name
+        stash_config db_root_password
+        stash_config db_username
+        stash_config db_password
+        stash_config db_allowed_hosts
+
+        stash_config apache_vhost_name
+        stash_config apache_install_root
+        stash_config apache_wsgi_path
+        stash_config apache_static_root
+
+        stash_config app_install_dir
+        stash_config app_git_url
+        stash_config app_install_script
+        stash_config app_db_server
+        stash_config app_secret_key
+
+  # Deploy and place application specific data onto the apache/app webserver
+  app_config_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: app_config
+      server:
+        get_resource: web_server
+      input_values:
+        db_root_password: asillypassword
+        db_name: dpaste
+        db_username: dpaste
+        db_password: anothersillypassword
+        db_allowed_hosts: 10.0.0.%
+
+        apache_vhost_name: dpaste
+        apache_install_root: /var/www/dpaste
+        apache_wsgi_path: /var/www/dpaste/wsgi.py
+        apache_static_root: /var/www/dpaste/dpaste/static/
+
+        app_install_dir: /var/www/dpaste
+        app_git_url: https://github.com/uberj/dpaste.git
+        app_install_script: install.sh
+        app_db_server:
+          get_attr: [db_server, first_address]
+        app_secret_key: a-not-so-secret-key
+
+  app_install:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: install_dir
+      - name: git_url
+      - name: install_script
+      outputs:
+      - name: result
+      config: |
+        #!/bin/bash
+        mkdir -p $(dirname $install_dir)
+        git clone $git_url $install_dir
+        $install_dir/$install_script
+
+
+  # Install the application on the web_server
+  app_install_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: app_install
+      server:
+        get_resource: web_server
+      input_values:
+        install_dir:
+          get_attr: [app_config_deployment, app_install_dir]
+        git_url:
+          get_attr: [app_config_deployment, app_git_url]
+        install_script:
+          get_attr: [app_config_deployment, app_install_script]
+
+outputs:
+  result:
+    value:
+      get_attr: [mysql_server_deployment, result]
+  # DB output
+  db_stdout:
+    value:
+      get_attr: [mysql_server_deployment, deploy_stdout]
+  db_stderr:
+    value:
+      get_attr: [mysql_server_deployment, deploy_stderr]
+  db_status_code:
+    value:
+      get_attr: [mysql_server_deployment, deploy_status_code]
+
+  # Web output
+  web_stdout:
+    value:
+      get_attr: [apache_deployment, deploy_stdout]
+  web_stderr:
+    value:
+      get_attr: [apache_deployment, deploy_stderr]
+  web_status_code:
+    value:
+      get_attr: [apache_deployment, deploy_status_code]
+
+  # Application output
+  app_stdout:
+    value:
+      get_attr: [app_install_deployment, deploy_stdout]
+  app_stderr:
+    value:
+      get_attr: [app_install_deployment, deploy_stderr]
+
+  # MySQL client output
+  mysql_client_app_stdout:
+    value:
+      get_attr: [mysql_client_deployment, deploy_stdout]
+  mysql_client_app_stderr:
+    value:
+      get_attr: [mysql_client_deployment, deploy_stderr]
+
+  web_public_ip:
+    description: Floating IP address of database in public network
+    value: { get_attr: [ db_floating_ip, floating_ip_address ] }
+
+  # The IP address to point your browser at
+  web_public_ip:
+    description: Floating IP address of webserver in public network
+    value: { get_attr: [ web_floating_ip, floating_ip_address ] }

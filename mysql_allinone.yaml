@@ -1,0 +1,59 @@
+heat_template_version: 2013-05-23
+
+parameters:
+  db_name:
+    type: string
+  root_password:
+    type: string
+  username:
+    type: string
+  password:
+    type: string
+  allowed_hosts:
+    type: string
+  db_server:
+    type: string
+resources:
+  mysql_server_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      inputs:
+      - name: db_name
+      - name: root_password
+      - name: username
+      - name: password
+      - name: host
+      outputs:
+      - name: result
+      config: |
+        class { '::mysql::server':
+          root_password     => $::root_password,
+          restart           => true,
+          override_options  => {
+            'mysqld' => {
+              'bind-address' => '0.0.0.0',
+            }
+          }
+        }
+
+        ::mysql::db { $::db_name:
+          user     => $::username,
+          password => $::password,
+          host     => $::host,
+          grant    => ['ALL']
+        }
+
+  mysql_server_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: mysql_server_config
+      server:
+        get_resource: { get_param: db_server }
+      input_values:
+        db_name: { get_param: db_name }
+        root_password: { get_param: root_password }
+        username: { get_param: username }
+        password: { get_param: password }
+        host: { get_param: allowed_hosts }

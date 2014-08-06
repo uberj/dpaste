@@ -115,23 +115,17 @@ resources:
   mysql_server_deployment:
     type: Software::Mysql::Allinone
     properties:
-      config:
-        get_resource: mysql_server_config
-      server:
-        get_resource: db_server
-      input_values:
-        db_name:
-          get_attr: [app_config_deployment, db_name]
-        root_password:
-          get_attr: [app_config_deployment, db_root_password]
-        username:
-          get_attr: [app_config_deployment, db_username]
-        password:
-          get_attr: [app_config_deployment, db_password]
-        allowed_hosts:
-          get_attr: [app_config_deployment, db_allowed_hosts]
-        db_server:
-          get_resource: db_server
+      db_name:
+        get_attr: [app_config_deployment, db_name]
+      root_password:
+        get_attr: [app_config_deployment, db_root_password]
+      username:
+        get_attr: [app_config_deployment, db_username]
+      password:
+        get_attr: [app_config_deployment, db_password]
+      allowed_hosts:
+        get_attr: [app_config_deployment, db_allowed_hosts]
+      db_server: { get_resource: db_server }
 
   web_server:
     type: OS::Nova::Server
@@ -370,19 +364,19 @@ resources:
           get_attr: [app_config_deployment, app_install_script]
 
 outputs:
-  result:
-    value:
-      get_attr: [mysql_server_deployment, result]
+  #result:
+  #  value:
+  #    get_attr: [mysql_server_deployment, result]
   # DB output
-  db_stdout:
-    value:
-      get_attr: [mysql_server_deployment, deploy_stdout]
-  db_stderr:
-    value:
-      get_attr: [mysql_server_deployment, deploy_stderr]
-  db_status_code:
-    value:
-      get_attr: [mysql_server_deployment, deploy_status_code]
+  #db_stdout:
+  #  value:
+  #    get_attr: [mysql_server_deployment, deploy_stdout]
+  #db_stderr:
+  #  value:
+  #    get_attr: [mysql_server_deployment, deploy_stderr]
+  #db_status_code:
+  #  value:
+  #    get_attr: [mysql_server_deployment, deploy_status_code]
 
   # Web output
   web_stdout:

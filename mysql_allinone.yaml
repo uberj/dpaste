@@ -27,22 +27,25 @@ resources:
       outputs:
       - name: result
       config: |
-        class { '::mysql::server':
-          root_password     => $::root_password,
-          restart           => true,
-          override_options  => {
-            'mysqld' => {
-              'bind-address' => '0.0.0.0',
-            }
-          }
+        file {'/tmp/foo':
+          ensure => file
         }
-
-        ::mysql::db { $::db_name:
-          user     => $::username,
-          password => $::password,
-          host     => $::host,
-          grant    => ['ALL']
-        }
+        #class { '::mysql::server':
+        #  root_password     => $::root_password,
+        #  restart           => true,
+        #  override_options  => {
+        #    'mysqld' => {
+        #      'bind-address' => '0.0.0.0',
+        #    }
+        #  }
+        #}
+#
+#        ::mysql::db { $::db_name:
+#          user     => $::username,
+#          password => $::password,
+#          host     => $::host,
+#          grant    => ['ALL']
+#        }
 
   mysql_server_deployment:
     type: OS::Heat::SoftwareDeployment
@@ -50,10 +53,14 @@ resources:
       config:
         get_resource: mysql_server_config
       server:
-        get_resource: { get_param: db_server }
+        get_param: db_server
       input_values:
         db_name: { get_param: db_name }
         root_password: { get_param: root_password }
         username: { get_param: username }
         password: { get_param: password }
         host: { get_param: allowed_hosts }
+
+outputs:
+  result:
+    value: foobar

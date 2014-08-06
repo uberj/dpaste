@@ -1,0 +1,2 @@
+resource_registry:
+  "Software::Mysql::Allinone": "file:///root/dpaste/mysql_allinone.yaml"

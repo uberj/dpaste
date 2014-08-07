@@ -58,6 +58,9 @@ parameters:
 #
 # [1] http://docs.openstack.org/developer/heat/template_guide/hot_spec.html#resources-section
 resources:
+  # Neutron SecurityGroups are a resource that represent firewall rules. Later,
+  # these security groups are assigned to ports which connect instances to the
+  # outside netwwork
   secgroup-ssh:
     type: OS::Neutron::SecurityGroup
     properties:
@@ -75,6 +78,13 @@ resources:
     properties:
       description: Enable all traffic between instances.
       rules: [{protocol: tcp, port_range_max: 65535, port_range_min: 1, remote_mode: remote_group_id},]
+
+  secgroup-icmp:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Enable traffic external traffic on SSH.
+      rules: [{protocol: icmp}]
+
 
   private_net:
     type: OS::Neutron::Net
@@ -130,6 +140,7 @@ resources:
         - { get_resource: secgroup-internal }
         - { get_resource: secgroup-web }
         - { get_resource: secgroup-ssh }
+        - { get_resource: secgroup-icmp }
 
   # By default, when you connect an instance to a network it you must assign it a publicly accessible
   # ip address. These external ip addresses are called "floating ip addresses"
@@ -245,6 +256,7 @@ resources:
         - { get_resource: secgroup-internal }
         - { get_resource: secgroup-web }
         - { get_resource: secgroup-ssh }
+        - { get_resource: secgroup-icmp }
 
   # Give the instance external connectivity
   web_floating_ip:

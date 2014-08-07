@@ -123,10 +123,8 @@ resources:
   db_port:
     type: OS::Neutron::Port
     properties:
-      #network_id: { get_param: private_net_id }
       network_id: { get_resource: private_net }
       fixed_ips:
-        #- subnet_id: { get_param: private_subnet_id }
         - subnet_id: { get_resource: private_subnet }
       security_groups:
         - { get_resource: secgroup-internal }
@@ -169,7 +167,6 @@ resources:
       outputs:
       - name: result
       config: |
-        # TODO, break this out into its own SoftwareConfig
         class { 'm::mysql::allinone':
           root_password     => $::root_password,
           db_name           => $::db_name,
@@ -221,8 +218,6 @@ resources:
           get_attr: [app_config_deployment, db_username]
         password:
           get_attr: [app_config_deployment, db_password]
-        #allowed_hosts:
-          #get_attr: [app_config_deployment, db_allowed_hosts]
 
 
   # The following resources are configuring and deploying an apache web server instance in a similar
@@ -346,7 +341,6 @@ resources:
         - name: db_root_password
         - name: db_username
         - name: db_password
-        #- name: db_allowed_hosts
 
         # apache specific data
         - name: apache_vhost_name
@@ -366,7 +360,6 @@ resources:
         - name: db_root_password
         - name: db_username
         - name: db_password
-        #- name: db_allowed_hosts
 
         # apache specific data
         - name: apache_vhost_name
@@ -395,7 +388,6 @@ resources:
         stash_config db_root_password
         stash_config db_username
         stash_config db_password
-        #stash_config db_allowed_hosts
 
         stash_config apache_vhost_name
         stash_config apache_install_root
@@ -423,7 +415,6 @@ resources:
         db_name: dpaste
         db_username: dpaste
         db_password: anothersillypassword
-        #db_allowed_hosts: 10.0.0.%
 
         apache_vhost_name: dpaste
         apache_install_root: /var/www/dpaste
